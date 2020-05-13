@@ -257,6 +257,9 @@ lib/gio
 
 ## Run reloc.sh and try your application out
 
+First, you need a copy of *osxrelocator.py* from gstreamer's *cerbero* project. The latest repo can be had at https://github.com/GStreamer/cerbero.git. The *reloc.sh* script will check for an env variable OSXRELOCATOR which should point to the osxrelocator.py script. 
+
+
 reloc.sh takes four arguments:
 
 ```script

@@ -8,17 +8,31 @@
 #
 # Assuming that exe name is same as bundle name, e.g. Contents/MacOS/bundle is the exe file
 
-if [ $# -ne 3 ]
+if [ $# -ne 4 ]
 then
-	echo "usage: reloc.sh BUILDDIR BUNDLE DISTDIR"
+	echo "usage: reloc.sh BUILDDIR BUNDLE LIBLIST DISTDIR"
 	exit -1
 fi
 
 BUILDDIR=$1	
 BUNDLE=$2
-DISTDIR=$3
+LIBLIST=$3
+DISTDIR=$4
 
-DEPLIST=$DISTDIR/deps.txt
+if [ -z $CERBERO ]
+then
+	echo "ENV var CERBERO not found"
+	exit -1
+else
+	if [ ! -d $CERBERO ]
+	then 
+		echo "CERBERO dir $CERBERO not found."
+		exit -1
+	fi
+fi
+
+OSXRELOCATOR=$CERBERO/cerbero/tools/osxrelocator.py
+export PYTHONPATH=$CERBERO
 
 # if DISTDIR exists, make sure bundle isn't in it.
 if [ -e $DISTDIR ]
@@ -63,7 +77,7 @@ mkdir -p $DISTDIR/$BUNDLE.app/Contents/Frameworks
 # 
 # 
 
-tar -cf - --files-from gstreamer.txt | tar -C $DISTDIR/$BUNDLE.app/Contents/Frameworks -xf -
+tar -cf - --files-from $LIBLIST | tar -C $DISTDIR/$BUNDLE.app/Contents/Frameworks -xf -
 
 ###################################
 # move/copy files to dist directory - done
@@ -112,10 +126,10 @@ tar -cf - --files-from gstreamer.txt | tar -C $DISTDIR/$BUNDLE.app/Contents/Fram
 # The way the paths are split up in 'gstreamer.txt' file dictates how this is done. 
 # You can (apparently) do pretty much whatever you want in the app bundle. Qt will hang its 
 # frameworks off this (and an rpath is set for it)
-osxrelocator $DISTDIR/$BUNDLE.app/Contents/MacOS /Library/Frameworks/GStreamer.framework/Versions/1.0 @executable_path/../Frameworks
+$OSXRELOCATOR $DISTDIR/$BUNDLE.app/Contents/MacOS /Library/Frameworks/GStreamer.framework/Versions/1.0 @executable_path/../Frameworks
 
 # relocate gstreamer libs
-osxrelocator -r $DISTDIR/$BUNDLE.app/Contents/Frameworks /Library/Frameworks/GStreamer.framework/Versions/1.0 @rpath
+$OSXRELOCATOR -r $DISTDIR/$BUNDLE.app/Contents/Frameworks /Library/Frameworks/GStreamer.framework/Versions/1.0 @rpath
 
 # gst-plugin-scanner has no rpath. create one: @executable_path/../..
 # two dirs up from @executable_path because gstreamer distribution has : libexec/gstreamer-1.0/gst-plugin-scanner
