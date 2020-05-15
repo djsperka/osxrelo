@@ -19,20 +19,23 @@ BUNDLE=$2
 LIBLIST=$3
 DISTDIR=$4
 
-if [ -z $CERBERO ]
-then
-	echo "ENV var CERBERO not found"
-	exit -1
-else
-	if [ ! -d $CERBERO ]
-	then 
-		echo "CERBERO dir $CERBERO not found."
-		exit -1
-	fi
-fi
+#if [ -z $CERBERO ]
+#then
+#	echo "ENV var CERBERO not found"
+#	exit -1
+#else
+#	if [ ! -d $CERBERO ]
+#	then 
+#		echo "CERBERO dir $CERBERO not found."
+#		exit -1
+#	fi
+#fi
 
-OSXRELOCATOR=$CERBERO/cerbero/tools/osxrelocator.py
-export PYTHONPATH=$CERBERO
+#OSXRELOCATOR=$CERBERO/cerbero/tools/osxrelocator.py
+#export PYTHONPATH=$CERBERO
+
+OSXRELOCATOR=`which osxrelocator`
+MACDEPLOYQT=`which macdeployqt`
 
 # if DISTDIR exists, make sure bundle isn't in it.
 if [ -e $DISTDIR ]
@@ -59,24 +62,7 @@ tar -C $BUILDDIR -cf - $BUNDLE.app | tar -C $DISTDIR -xf -
 # mkdir Frameworks in app bundle
 mkdir -p $DISTDIR/$BUNDLE.app/Contents/Frameworks
 
-# move gstreamer libs in file 'gstreamer.txt'
-# Need to create gstreamer.txt. This file is input to tar and specifies the files to
-# copy. The gstreamer framework is a unix-style structure (lib/, bin/, libexec/), so set 
-# up the gstreamer.txt file like this:
-#
-# -C
-# /Library/Frameworks/GStreamer.framework/Versions/1.0
-# lib/libgstreamer-1.0.0.dylib
-# ...(more libs req'd by exe or by plugins)
-# lib/gstreamer-1.0/libgstvideotestsrc.dylib
-# ...(plugin libs that you need)
-# bin/ (I don't think you need these, but gst-inspect is useful for debugging.)
-# libexec/ (gst-plugin-scanner needed, GST_PLUGIN_SCANNER points to it and 
-# is called in gst_init
-# lib/gio (need this, env var for it)
-# 
-# 
-
+# Now copy files from $LIBLIST
 tar -cf - --files-from $LIBLIST | tar -C $DISTDIR/$BUNDLE.app/Contents/Frameworks -xf -
 
 ###################################
@@ -88,59 +74,29 @@ tar -cf - --files-from $LIBLIST | tar -C $DISTDIR/$BUNDLE.app/Contents/Framework
 # non-gstreamer libs and files
 #################################
 
-# move other libs in file 'other.txt'
-#tar -cf - --files-from other.txt | tar -C $DISTDIR/$BUNDLE.app/Contents/Frameworks -xf -
-
-# move other libs in file 'myplugin.txt'
-#tar -cf - --files-from myplugin.txt | tar -C $DISTDIR/$BUNDLE.app/Contents/Frameworks/lib/gstreamer-1.0 -xf -
-
-# move stimuli
-#mkdir -p $DISTDIR/$BUNDLE.app/Contents/Stimuli
-#tar cf - --files-from stimuli.txt | tar -C $DISTDIR/$BUNDLE.app/Contents/Stimuli -xf -
-
-# my config file. This will be custom-per-experiment as will stimuli
-#tar cf - first.json | tar -C $DISTDIR/$BUNDLE.app/Contents/Stimuli -xf -
-
 #################################
 # non-gstreamer libs and files - done
 #################################
 
 
 #######################################################################################################
-# relocate - osxrelocator traverses a directory structure (files with no extension, or ".dylib", ".so".
-#            my hack also gets the "*-1.0" executables
+# relocate
 #######################################################################################################
-  
-# exe first
-# Here is where build settings matter. If you use pkg-config against gstreamer, then you 
-# get these settings:
-#
-# pkg-config --libs gstreamer-1.0:
-# -L/Library/Frameworks/GStreamer.framework/Versions/1.0/lib -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0 -lintl
-# 
-# The load path for the gstreamer libs is a full path. Change the paths so they are relative to 
-# the executable file. Given the osx bundle structure, make the substitution replacing 
-# "/Library/Frameworks/GStreamer.framework/Versions/1.0" with 
-# "@executable_path/../Frameworks"
-# 
-# The way the paths are split up in 'gstreamer.txt' file dictates how this is done. 
-# You can (apparently) do pretty much whatever you want in the app bundle. Qt will hang its 
-# frameworks off this (and an rpath is set for it)
+
+# executable
 $OSXRELOCATOR $DISTDIR/$BUNDLE.app/Contents/MacOS /Library/Frameworks/GStreamer.framework/Versions/1.0 @executable_path/../Frameworks
 
 # relocate gstreamer libs
-$OSXRELOCATOR -r $DISTDIR/$BUNDLE.app/Contents/Frameworks /Library/Frameworks/GStreamer.framework/Versions/1.0 @rpath
+$OSXRELOCATOR $DISTDIR/$BUNDLE.app/Contents/Frameworks /Library/Frameworks/GStreamer.framework/Versions/1.0 @rpath -r
 
 # gst-plugin-scanner has no rpath. create one: @executable_path/../..
 # two dirs up from @executable_path because gstreamer distribution has : libexec/gstreamer-1.0/gst-plugin-scanner
 install_name_tool -add_rpath @executable_path/../.. $DISTDIR/$BUNDLE.app/Contents/Frameworks/libexec/gstreamer-1.0/gst-plugin-scanner
 
+#######################################################################################################
+# relocate - done
+#######################################################################################################
 
-
-#######################################################
-# relocate libs included in dist that are not gstreamer 
-#######################################################
-#osxrelocator $DISTDIR/$BUNDLE.app/Contents/MacOS /usr/local/opt/boost @executable_path/../Frameworks
 
 
 

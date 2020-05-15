@@ -1,52 +1,46 @@
 # How to relocate a gstreamer/Qt application for distribution
 
-Applications that use dynamic libraries have "load commands" in the executable file (dynamic libraries also have load commands). The "load commands" tell the dynamic loader where to find a particular dynamic library needed by the executable (or library). The command can have an absolute path to a library, or it can have a path *relative to* one of several special variables whose exact path is determined at load time. 
+This doc is a core dump of the process - the short version is this:
 
-If you copy the application to another machine (or to another location on your own machine), the application may or may not run, depending on whether the system can load the dynamic libraries it needs at run time. 
+1. Project assumptions & setup
 
-System libraries (contained in /usr/lib, /System/Libraries) are linked with absolute filenames in their load commands, and do not need to be changed - you can safely assume they are present on any mac system (at least one that respects your applications *MINIMUM_SYSTEM_VERSION*. This procedure ignores these system libraries. 
+   Qt/GStreamer project. Your project's #\*.pro# file is the root of all, so the version of  *qmake* determines version of Qt throughout. The build will also use pkg-config for gstreamer (but need a workaround qmake seems broken unless run from command line). Use *PKG_CONFIG_DIR* to specify version&location of gstreamer used throughout. It helps to make the project have a build dir that also depends on build type (release/debug).
+   
+1. Set up exe to run correctly when installed (set env vars - can be done outside for testing obv) or not installed (i.e. on your machine when dev&testing). 
+1. Generate dependency list, create input file for reloc.sh script. This file must be updated if plugin list changes.
+1. run reloc.sh, test by running from cmd line (without args), then double-click. Run otool -L on entire app bundle, grep for /Library/Frameworks (and /usr/local/lib et al if you use such things). Common crash error is loading gstreamer (and hence glib) from two different libraries (and a reference to your developer libs remains) - glib crashes right away. Another would be having left out plugins - depends on how the app handles failure of gstreamer factory methods.
+1. (TODO) run script to generate dmg and/or pkg. 
+
+Applications that use dynamic libraries have "load commands" in the executable file (dynamic libraries also have load commands). The "load commands" tell the dynamic loader where to find a particular dynamic library needed by the executable (or library). The command can have an absolute path to a library, or it can have a path *relative to* one of several special variables whose exact path is determined at load time. Commands otool -L (brief list of dep libs), otool -l (full dump, including RPATHs if there)
+
+If you copy the application to another machine (or to another location on your own machine), the application may or may not run, depending on whether the system can load the dynamic libraries it needs at run time. If user machine has Qt and GStreamer installed in same config as your build machine, then the app should run.
+
+System libraries (contained in /usr/lib, /System/Libraries) are linked with absolute filenames in their load commands, and do not need to be changed - you can safely assume they are present on any mac system (at least one that respects your applications *MINIMUM_SYSTEM_VERSION*. This procedure ignores these system libraries -- *ldeps.sh* filters them out. 
 
 Here I'll outline a procedure to modify your application bundle so it can be copied to another machine and run properly. Its a procedure, and it requires your intervention to make it all work.
 
+## Prerequisites
+
+*osxrelocator* - A project exists which forked this tool from gstreamer. It must be installed in the same python dist that you use throughout, I assume python3 throughout. My python dist is a mess - I prob have>5 installations in various places. After settling on using homebrew I found that everything worked. I cloned the repo & ran setup.py from there, but running pip3 (in same dist) against the pypi dist should work.
+
+*XCode dev tools* - I've only done this with these, not homebrew gcc or clang. In theory those can work fine given the right libs. Good luck.
+
 ## GStreamer framework 
 
-I am working with the latest version of GStreamer on the mac (1.16 at this writing). This is important, because the libraries in the gstreamer framework use the same type of load commands, with some libraries using absolute file paths and others using paths relative to one of the special dynamic loader vars (*@rpath*). The executable files in the gstreamer framework use a loader path slightly different than that of the libraries they load. 
+I am working with the latest version of GStreamer on the mac (1.16 at this writing). The lib/ folder has two components. The lib/ folder itself (not its subfolders) has general purpose libs that plugins and applications can use. These are linked with the full path to the installed libs. The lib/gstreamer-1.0 folder contains plugin dylibs. These are linked to the libraries in lib/ with a relative path in them, something like *@rpath/lib/libgstvideo-1.0.0.dylib*, so those links are not modified - just make sure the exe file has rpath in it that points to the correct location in the bundle (@executable_path+something else). All libs contain a load command to themselves, it seems, and that's hard-coded AFAICT, so *osxrelocator* should  be run recursively on bundle/Contents/Frameworks. 
 
-If you're not using gstreamer 1.16, this procedure may not work exactly as-is! 
+## Qt license
 
-I'm assuming that your build uses *pkg-config*, and that you set the env variable *PKG_CONFIG_PATH* to the *pkgconfig/* folder inside your gstreamer distribution. Essentially, your choice of *PKG_CONFIG_PATH* at build time determines the location of the gstreamer distribution that your application links with. (You can switch gstreamer versions in your app by changing the value of *PKG_CONFIG_PATH* and doing a full rebuild.)
-
-Finally, this procedure was developed against the *official* distribution of gstreamer. The version distributed with *homebrew* may have some differences in how the libraries are linked, and so this procedure may need adjusting in that case. 
-
-## With or without Qt?
-
-If your application uses Qt, you will also have to deal with the Qt libraries (and licensing of course). I'll outline how to modify your app bundle to distribute Qt libraries within the bundle - **you should make sure your distribution complies with your Qt license**. 
+Qt open source license allows redist of dependent libs, I'm not sure about other license types. 
 
 Qt includes a deployment tool with its distribution on mac, called *macdeployqt*. This application modifies an app bundle to incorporate the Qt libraries inside it, and changes any load commands necessary to make the app work when moved to another machine. 
-
-*macdeployqt* will ignore system libraries that are assumed to be on any mac system. It apparently treats anything found in /Library/Frameworks as "system" libraries and leaves them alone (with the obvious exception of the Qt libs themselves). The gstreamer libraries, however, fall into this category. 
-
-In this procedure, I leave the *macdeployqt* step until last, so that the only libraries that need to be dealt with are the Qt libs themselves. 
 
 ## Libraries that are neither system, Qt, or gstreamer
 
 If your app uses other dynamic libraries, the *macdeployqt* tool will move them to your app bundle and change load commands appropriately. Its probably the case that you can allow *macdeployqt* to relocate these libraries, or you can manage the relocation yourself. In this procedure, I do the latter. YMMV. 
 
-# Procedure overview
+TODO - allow for turning macdeployqt step off to allow for insertion of other libs into bundle. 
 
-The actual procedure goes something like this:
-
-1. build your application so it runs on your development machine
-1. generate a list of libraries that the app requires
-1. create input file for tar to move libs
-1. run reloc.sh to move app bundle and perform relocations
-
-
-You do the numbered list above, the script reloc.sh does the rest. 
-
-## Build your application
-
-Presumably you can do this. If you have dynamic library loading errors this process may or may not help. 
 
 ## Generate list of libs your app requires
 
@@ -255,7 +249,7 @@ lib/gio
 **Important:** tar is not tolerant of trailing spaces! Make sure each line in this file does NOT have trailing spaces. 
 
 
-## Run reloc.sh and try your application out
+## Run reloc.sh
 
 First, you need a copy of *osxrelocator.py* from gstreamer's *cerbero* project. The latest repo can be had at https://github.com/GStreamer/cerbero.git. The *reloc.sh* script will check for an env variable OSXRELOCATOR which should point to the osxrelocator.py script. 
 
@@ -273,59 +267,13 @@ reloc.sh BUILDDIR BUNDLE LIBLIST DISTDIR
 
 DISTDIR must not exist before the script is run. This folder will be created and your (relocated) app bundle will be placed inside it. The entire DISTDIR folder may be safely deleted. 
 
+I get these types of error messages - the come from macdeployqt and don't seem to matter ( I don't use these libs anyways, looks like their dependency gets picked up by some other inclusion)
 
-
-
-That doesn't work for all plugins, I've found. Another technique is to use *gst-inspect-1.0*
-These have their own dependencies. Note that internally, the gstreamer libraries
-all use '@rpath' in the loader paths. We will set the rpath in the exe file so it 
-points to the 'Frameworks' folder.
-
-```shell
-1224 dan:relosx$ for ifile in `cat d1.txt`; do
-> ./ldeps.sh $ifile >> d2.txt
-> done
-1225 dan:relosx$ cat d2.txt 
-@rpath/lib/libgobject-2.0.0.dylib
-@rpath/lib/libglib-2.0.0.dylib
-@rpath/lib/libintl.8.dylib
-@rpath/lib/libgmodule-2.0.0.dylib
-@rpath/lib/libglib-2.0.0.dylib
-@rpath/lib/libffi.7.dylib
-@rpath/lib/libintl.8.dylib
+```script
+ERROR: no file at "/Library/lib/GStreamer.framework/Versions/1.0/lib"
+WARNING: Plugin "libqsqlodbc.dylib" uses private API and is not Mac App store compliant.
+WARNING: Plugin "libqsqlpsql.dylib" uses private API and is not Mac App store compliant.
+ERROR: no file at "/usr/local/opt/libiodbc/lib/libiodbc.2.dylib"
+ERROR: no file at "/Applications/Postgres.app/Contents/Versions/9.6/lib/libpq.5.dylib"
 ```
 
-For plugins, process is similar. Compile a list of plugins used. In my case its
-*videotestsrc*, *videoconvert*, *osxvideosink*. I'm not certain, but it appears that plugins 
-only refer to gstreamer libs (in the lib/ folder), not other plugins (in the lib/gstreamer-1.0/ 
-folder). If I run ldeps.sh on videotestsrc lib, 
-
-```shell
-1232 dan:relosx$ ./ldeps.sh /Library/Frameworks/GStreamer.framework/Versions/1.0/lib/gstreamer-1.0/libgstvideotestsrc.dylib 
-@rpath/lib/libgstvideo-1.0.0.dylib
-@rpath/lib/libglib-2.0.0.dylib
-@rpath/lib/libgobject-2.0.0.dylib
-@rpath/lib/libgstbase-1.0.0.dylib
-@rpath/lib/libgstreamer-1.0.0.dylib
-@rpath/lib/liborc-0.4.0.dylib
-```
-
-
-
-# move gstreamer libs in file 'gstreamer.txt'
-# Need to create gstreamer.txt. This file is input to tar and specifies the files to
-# copy. The gstreamer framework is a unix-style structure (lib/, bin/, libexec/), so set 
-# up the gstreamer.txt file like this:
-#
-# -C
-# /Library/Frameworks/GStreamer.framework/Versions/1.0
-# lib/libgstreamer-1.0.0.dylib
-# ...(more libs req'd by exe or by plugins)
-# lib/gstreamer-1.0/libgstvideotestsrc.dylib
-# ...(plugin libs that you need)
-# bin/ (I don't think you need these, but gst-inspect is useful for debugging.)
-# libexec/ (gst-plugin-scanner needed, GST_PLUGIN_SCANNER points to it and 
-# is called in gst_init
-# lib/gio (need this, env var for it)
-# 
-# 
