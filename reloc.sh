@@ -8,32 +8,25 @@
 #
 # Assuming that exe name is same as bundle name, e.g. Contents/MacOS/bundle is the exe file
 
-if [ $# -ne 4 ]
+if [ $# -eq 4 ]
 then
-	echo "usage: reloc.sh BUILDDIR BUNDLE LIBLIST DISTDIR"
+		
+	BUILDDIR=$1	
+	BUNDLE=$2
+	LIBLIST=$3
+	PKGLIST=""
+	DISTDIR=$4
+elif [ $# -eq 5 ]
+then
+	BUILDDIR=$1	
+	BUNDLE=$2
+	LIBLIST=$3
+	PKGLIST=$4
+	DISTDIR=$5
+else
+	echo "usage: reloc.sh BUILDDIR BUNDLE LIBLIST [PKGLIST] DISTDIR"
 	exit -1
-fi
-
-BUILDDIR=$1	
-BUNDLE=$2
-LIBLIST=$3
-DISTDIR=$4
-
-#if [ -z $CERBERO ]
-#then
-#	echo "ENV var CERBERO not found"
-#	exit -1
-#else
-#	if [ ! -d $CERBERO ]
-#	then 
-#		echo "CERBERO dir $CERBERO not found."
-#		exit -1
-#	fi
-#fi
-
-#OSXRELOCATOR=$CERBERO/cerbero/tools/osxrelocator.py
-#export PYTHONPATH=$CERBERO
-
+fi		
 OSXRELOCATOR=`which osxrelocator`
 MACDEPLOYQT=`which macdeployqt`
 
@@ -62,9 +55,19 @@ tar -C $BUILDDIR -cf - $BUNDLE.app | tar -C $DISTDIR -xf -
 # mkdir Frameworks in app bundle
 mkdir -p $DISTDIR/$BUNDLE.app/Contents/Frameworks
 
-# Now copy files from $LIBLIST
+# Now copy files from $LIBLIST into 
 tar -cf - --files-from $LIBLIST | tar -C $DISTDIR/$BUNDLE.app/Contents/Frameworks -xf -
 
+# if defined, copy files from PKGLIST
+if [ ! -z "$PKGLIST" ]
+then
+	echo "getting files from pkglist file $PKGLIST"
+	while IFS= read -r pkg
+	do
+  		echo "getting files from pkg: $pkg"
+  		tar -C /Library/Frameworks/GStreamer.Framework/Versions/Current -cf - `pkgutil --files $pkg | egrep '\.dylib$'` | tar -C $DISTDIR/$BUNDLE.app/Contents/Frameworks -xf -
+	done < "$PKGLIST"
+fi
 ###################################
 # move/copy files to dist directory - done
 ###################################
